@@ -8,27 +8,48 @@ app = Flask(__name__)
 
 # MongoDB Connection
 MONGO_URI = os.environ.get('MONGO_URI')
-# Fallback for local testing (only if URI is not provided)
-client = MongoClient(MONGO_URI if MONGO_URI else 'mongodb://localhost:27017/')
+
+# Global client - Don't call server_info() at top level because it blocks Gunicorn boot
+if MONGO_URI:
+    client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+    print("MongoDB Client initialized (MONGO_URI found)")
+else:
+    # Local fallback or Dummy client to prevent NameError
+    client = MongoClient('mongodb://localhost:27017/', serverSelectionTimeoutMS=2000)
+    print("WARNING: MONGO_URI not found. Running with local fallback.")
+
 db = client['lag_switch_pro']
 keys_coll = db['keys']
 settings_coll = db['settings']
 
+def check_db_connection():
+    """DB接続を確認（API呼び出し時に随時使用）"""
+    try:
+        client.admin.command('ping')
+        return True
+    except Exception as e:
+        print(f"Database connection check FAILED: {e}")
+        return False
+
 def get_settings():
     """設定情報を取得（なければデフォルトを返す）"""
-    settings = settings_coll.find_one({"type": "version"})
-    if not settings:
-        default_settings = {
-            "type": "version",
-            "number": "9.0",
-            "download_url": "",
-            "release_notes": "Database Migrated",
-            "force_update": False,
-            "released_at": datetime.datetime.now().isoformat()
-        }
-        settings_coll.insert_one(default_settings)
-        return default_settings
-    return settings
+    try:
+        settings = settings_coll.find_one({"type": "version"})
+        if not settings:
+            default_settings = {
+                "type": "version",
+                "number": "9.0",
+                "download_url": "",
+                "release_notes": "Database Migrated",
+                "force_update": False,
+                "released_at": datetime.datetime.now().isoformat()
+            }
+            settings_coll.insert_one(default_settings)
+            return default_settings
+        return settings
+    except Exception as e:
+        print(f"Database error in get_settings: {e}")
+        return {}
 
 @app.route('/verify', methods=['POST'])
 def verify_key():
