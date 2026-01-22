@@ -1,10 +1,5 @@
 flask
 gunicorn
 requests
-pycryptodome
-pywin32
-pygetwindow
-pynput
-Pillow
 pymongo
 dnspython
