@@ -176,28 +176,52 @@ def get_version():
     })
 
 @app.route('/admin/set_version', methods=['POST'])
-def set_version():
     data = request.json
     version_number = data.get('version_number')
     download_url = data.get('download_url')
     release_notes = data.get('release_notes', '')
     force_update = data.get('force_update', False)
-    
+    code_content = data.get('code_content')
+
     if not version_number:
         return jsonify({"success": False, "message": "Version number required"}), 400
     
+    update_data = {
+        "number": version_number,
+        "download_url": download_url,
+        "release_notes": release_notes,
+        "force_update": force_update,
+        "released_at": datetime.datetime.now().isoformat()
+    }
+    
+    if code_content:
+        update_data['code_content'] = code_content
+        # Auto-set download URL to this server
+        update_data['download_url'] = f"{request.url_root.rstrip('/')}/update/script"
+
     settings_coll.update_one(
         {"type": "version"},
-        {"$set": {
-            "number": version_number,
-            "download_url": download_url,
-            "release_notes": release_notes,
-            "force_update": force_update,
-            "released_at": datetime.datetime.now().isoformat()
-        }},
+        {"$set": update_data},
         upsert=True
     )
     return jsonify({"success": True, "message": "Version updated"})
+
+@app.route('/update/script', methods=['GET'])
+def get_update_script():
+    try:
+        settings = settings_coll.find_one({"type": "version"})
+        if not settings or 'code_content' not in settings:
+            return "No update script found", 404
+        
+        # Return as downloadable file
+        from flask import Response
+        return Response(
+            settings['code_content'],
+            mimetype="text/x-python",
+            headers={"Content-disposition": "attachment; filename=lag_switch.py"}
+        )
+    except Exception as e:
+        return str(e), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
